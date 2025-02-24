@@ -27,7 +27,6 @@ import require$$6 from 'string_decoder';
 import require$$0$9 from 'diagnostics_channel';
 import require$$2$2 from 'child_process';
 import require$$6$1 from 'timers';
-import { ok } from 'node:assert/strict';
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -27247,34 +27246,244 @@ function requireCore () {
 
 var coreExports = requireCore();
 
+var preset;
+(function (preset) {
+    preset["unknown"] = "unknown";
+    preset["werf"] = "werf";
+})(preset || (preset = {}));
+const cmdAddArgsMap = {
+    [preset.unknown]: {
+        repo: preset.unknown,
+        url: '',
+        rootVersion: '',
+        rootSha512: ''
+    },
+    [preset.werf]: {
+        repo: preset.werf,
+        url: 'https://tuf.werf.io',
+        rootVersion: '2',
+        rootSha512: '9c075fb1b91d69308ac3ded709c0f12779f554e852aa90e2595994c217d767e06508b686db7d55fd99e96f357b1ba3640aed1ebe62fc15c9358a70d41355f46c'
+    }
+};
+const cmdUpdateArgsMap = {
+    [preset.unknown]: {
+        repo: preset.unknown,
+        group: ''
+        // channel is optional field
+    },
+    [preset.werf]: {
+        repo: preset.werf,
+        group: 'stable',
+        channel: '2'
+    }
+};
+function getAddArgs(presetVal) {
+    return cmdAddArgsMap[presetVal];
+}
+function getUpdateArgs(presetVal) {
+    return cmdUpdateArgsMap[presetVal];
+}
+function parsePresetInput() {
+    const p = coreExports.getInput('preset') || preset.unknown;
+    if (!(p in preset)) {
+        throw new Error(`preset "${p}" not found. Available presets: ${Object.values(preset).join(' ,')}`);
+    }
+    return p;
+}
+
 var ioExports = requireIo();
 
 var execExports = requireExec();
 
-async function assertSystemTrdl(toolName) {
-    await ioExports.which(toolName, true);
-}
-function parseInputs() {
+async function execOutput(commandLine, args, options) {
+    const stdout = [];
+    const stderr = [];
+    const defaultOptions = {
+        // https://github.com/actions/toolkit/blob/%40actions/exec%401.0.1/packages/exec/src/interfaces.ts#L39
+        silent: true,
+        failOnStdErr: true,
+        listeners: {
+            stdline(data) {
+                stdout.push(data);
+            },
+            errline(data) {
+                stderr.push(data);
+            }
+        }
+    };
+    const exitCode = await execExports.exec(commandLine, args, { ...defaultOptions, ...options });
     return {
-        repo: coreExports.getInput('repo'),
-        group: coreExports.getInput('group'),
-        channel: coreExports.getInput('channel'),
-        options: coreExports.getInput('options')
+        stdout,
+        stderr,
+        exitCode
     };
 }
-function assertInputs(inputs) {
-    ok(inputs.repo, 'repo param must be passed');
-    ok(inputs.group, 'group param must be passed');
+
+// optional array element
+function optionalToArray(arg) {
+    return arg ? [arg] : [];
 }
-async function trdlUse(repo, group, channel, options) {
-    await execExports.exec('trdl', ['use', repo, group, channel, options].filter(Boolean)); // ['x', ''].filter(Boolean) -> ['x']
+function optionalToObject(key, value) {
+    return value ? { [key]: value } : {};
 }
+
+class TrdlCli {
+    toolName;
+    constructor(toolName = 'trdl') {
+        this.toolName = toolName;
+    }
+    // throws the error if trdl is not exist
+    async mustExist() {
+        await ioExports.which(this.toolName, true);
+    }
+    async add(args) {
+        const { repo, url, rootVersion, rootSha512 } = args;
+        await execExports.exec(this.toolName, ['add', repo, url, rootVersion, rootSha512]);
+    }
+    async remove(args) {
+        const { repo } = args;
+        await execExports.exec(this.toolName, ['remove', repo]);
+    }
+    async update(args) {
+        const { repo, group, channel } = args;
+        await execExports.exec(this.toolName, ['update', repo, group, ...optionalToArray(channel)]);
+    }
+    async binPath(args) {
+        const { repo, group, channel } = args;
+        const { stdout } = await execOutput(this.toolName, ['bin-path', repo, group, ...optionalToArray(channel)]);
+        return stdout.join('');
+    }
+    async list() {
+        const { stdout } = await execOutput(this.toolName, ['list']);
+        return stdout.slice(1).map(parseLineToItem);
+    }
+}
+function parseLineToItem(line) {
+    const [name, url, default_, channel] = line.split(/ +/);
+    return {
+        name,
+        url,
+        default: default_,
+        channel
+    };
+}
+
+function parseInputs$2(required) {
+    return {
+        force: coreExports.getBooleanInput('force', { required }),
+        repo: coreExports.getInput('repo', { required }),
+        url: coreExports.getInput('url', { required }),
+        rootVersion: coreExports.getInput('root-version', { required }),
+        rootSha512: coreExports.getInput('root-sha512', { required })
+    };
+}
+function mapInputsCmdArgs(inputs) {
+    const { repo, url, rootVersion, rootSha512 } = inputs;
+    return {
+        repo,
+        url,
+        rootVersion,
+        rootSha512
+    };
+}
+async function Do$2(trdlCli, p) {
+    const noPreset = p === preset.unknown;
+    const inputs = parseInputs$2(noPreset);
+    const args = noPreset ? mapInputsCmdArgs(inputs) : getAddArgs(p);
+    const list = await trdlCli.list();
+    const found = list.find((item) => args.repo === item.name);
+    if (!found) {
+        await trdlCli.add(args);
+        return;
+    }
+    if (found.url !== args.url) {
+        throw new Error(`Already added repo.url=${found.url} is not matched with given input.url=${args.url}`);
+    }
+    if (!inputs.force) {
+        // skip adding
+        return;
+    }
+    // force adding
+    await trdlCli.remove(args);
+    await trdlCli.add(args);
+}
+
+function parseInputs$1(required) {
+    const channel = coreExports.getInput('channel');
+    return {
+        force: coreExports.getBooleanInput('force', { required }),
+        repo: coreExports.getInput('repo', { required }),
+        group: coreExports.getInput('group', { required }),
+        ...optionalToObject('channel', channel) // optional field
+    };
+}
+function mapInputsToCmdArgs$1(inputs) {
+    const { repo, group, channel } = inputs;
+    return {
+        repo,
+        group,
+        ...optionalToObject('channel', channel) // optional field
+    };
+}
+async function Do$1(trdlCli, p) {
+    const noPreset = p === preset.unknown;
+    const inputs = parseInputs$1(noPreset);
+    const args = noPreset ? mapInputsToCmdArgs$1(inputs) : getUpdateArgs(p);
+    const list = await trdlCli.list();
+    const found = list.find((item) => args.repo === item.name);
+    if (!found) {
+        await trdlCli.update(args);
+        return;
+    }
+    if (args?.channel) {
+        if (found.channel !== args.channel) {
+            throw new Error(`Found app channel=${found.channel} is not matched with given input.channel=${args.channel}`);
+        }
+    }
+    // force updating
+    await trdlCli.update(args);
+}
+
+function parseInputs(required) {
+    const channel = coreExports.getInput('channel');
+    return {
+        repo: coreExports.getInput('repo', { required }),
+        group: coreExports.getInput('group', { required }),
+        ...optionalToObject('channel', channel) // optional field
+    };
+}
+function mapInputsToCmdArgs(inputs) {
+    const { repo, group, channel } = inputs;
+    return {
+        repo,
+        group,
+        ...optionalToObject('channel', channel) // optional field
+    };
+}
+async function Do(trdlCli, p) {
+    const noPreset = p === preset.unknown;
+    const inputs = parseInputs(noPreset);
+    const args = noPreset ? mapInputsToCmdArgs(inputs) : getUpdateArgs(p);
+    const foundPath = await ioExports.which(args.repo, false);
+    const appPath = await trdlCli.binPath(args);
+    if (foundPath !== '') {
+        if (foundPath !== appPath) {
+            throw new Error(`Found path=${foundPath} is not matched with "trdl bin-path"=${appPath}`);
+        }
+        // Skip adding to path because tool is already there.
+        return;
+    }
+    // add app to $PATH
+    coreExports.addPath(appPath);
+}
+
 async function Run() {
-    const toolName = 'trdl';
-    await assertSystemTrdl(toolName);
-    const inputs = parseInputs();
-    assertInputs(inputs);
-    await trdlUse(inputs.repo, inputs.group, inputs.channel, inputs.options);
+    const p = parsePresetInput();
+    const cli = new TrdlCli();
+    await cli.mustExist();
+    await Do$2(cli, p);
+    await Do$1(cli, p);
+    await Do(cli, p);
 }
 
 /**

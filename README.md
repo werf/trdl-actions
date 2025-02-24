@@ -15,6 +15,28 @@ This repository allows you to organize CI/CD with GitHub Actions and
 
 ## Examples
 
+### Add and use `werf` via the preset of trdl-actions
+
+```yaml
+- name: Install trdl
+  uses: werf/trdl-actions/install@v0
+
+- name: Use werf
+  uses: werf/trdl-actions/setup-app@v0
+  inputs:
+    # use "werf" preset of trdl-actions to do "trdl add" AND "trdl use" for werf
+    preset: werf
+
+- name: Run werf
+  run: |
+    . $(werf ci-env github --as-file)
+    werf converge
+  env:
+    WERF_KUBECONFIG_BASE64: ${{ secrets.KUBE_CONFIG_BASE64_DATA }}
+    WERF_ENV: production
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
 ### Add and use `werf` manually via trdl CLI
 
 ```yaml
