@@ -1,0 +1,25 @@
+name: trdl add command
+author: 'Flant'
+description: 'trdl add command using GitHub action. See https://trdl.dev/reference/cli/trdl_add.html'
+branding:
+  color: blue
+  icon: anchor
+inputs:
+  preset:
+    description: 'The certain repository preset. For example: werf'
+    required: false
+  repo:
+    description: 'The certain repository name'
+    required: true
+  url:
+    description: 'The certain repository url'
+    required: true
+  root-version:
+    description: ''
+    required: false
+  root-sha512:
+    description: ''
+    required: false
+runs:
+  using: 'node20'
+  main: 'dist/index.mjs'

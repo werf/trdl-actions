@@ -9,6 +9,7 @@ export default [
   // prettier-ignore
   buildActionConfig('install'),
   buildActionConfig('use'),
+  buildActionConfig('setup-repo'),
 ]
 
 function buildActionConfig(action) {
