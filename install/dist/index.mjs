@@ -27,7 +27,6 @@ import require$$6 from 'string_decoder';
 import require$$0$9 from 'diagnostics_channel';
 import require$$2$2 from 'child_process';
 import require$$6$1 from 'timers';
-import { Buffer as Buffer$1 } from 'node:buffer';
 import { chmodSync } from 'node:fs';
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
@@ -27248,8 +27247,6 @@ function requireCore () {
 
 var coreExports = requireCore();
 
-var execExports = requireExec();
-
 var libExports = requireLib();
 
 var toolCache = {};
@@ -29822,6 +29819,103 @@ function requireToolCache () {
 
 var toolCacheExports = requireToolCache();
 
+var execExports = requireExec();
+
+async function execOutput(commandLine, args, options) {
+    const stdout = [];
+    const stderr = [];
+    const defaultOptions = {
+        // https://github.com/actions/toolkit/blob/%40actions/exec%401.0.1/packages/exec/src/interfaces.ts#L39
+        silent: true,
+        failOnStdErr: true,
+        listeners: {
+            stdline(data) {
+                stdout.push(data);
+            },
+            errline(data) {
+                stderr.push(data);
+            }
+        }
+    };
+    const exitCode = await execExports.exec(commandLine, args, { ...defaultOptions, ...options });
+    return {
+        stdout,
+        stderr,
+        exitCode
+    };
+}
+
+class GpgCli {
+    bin;
+    constructor(bin = 'gpg') {
+        this.bin = bin;
+    }
+    async mustGnuGP() {
+        const help = await this.help();
+        if (!help.includes('GnuPG')) {
+            throw new Error('gpg is not GnuPG. Please install GnuPG');
+        }
+    }
+    async import(ascPath) {
+        await execOutput(this.bin, ['--import', ascPath]);
+    }
+    async verify(sigPath, binPath) {
+        await execOutput(this.bin, ['--verify', sigPath, binPath]);
+    }
+    async help() {
+        const { stdout } = await execOutput(this.bin, ['--help']);
+        return stdout.join('');
+    }
+}
+
+var ioExports = requireIo();
+
+// optional array element
+function optionalToArray(arg) {
+    return arg ? [arg] : [];
+}
+
+class TrdlCli {
+    toolName;
+    constructor(toolName = 'trdl') {
+        this.toolName = toolName;
+    }
+    // throws the error if trdl is not exist
+    async mustExist() {
+        await ioExports.which(this.toolName, true);
+    }
+    async add(args) {
+        const { repo, url, rootVersion, rootSha512 } = args;
+        await execExports.exec(this.toolName, ['add', repo, url, rootVersion, rootSha512]);
+    }
+    async remove(args) {
+        const { repo } = args;
+        await execExports.exec(this.toolName, ['remove', repo]);
+    }
+    async update(args) {
+        const { repo, group, channel } = args;
+        await execExports.exec(this.toolName, ['update', repo, group, ...optionalToArray(channel)]);
+    }
+    async binPath(args) {
+        const { repo, group, channel } = args;
+        const { stdout } = await execOutput(this.toolName, ['bin-path', repo, group, ...optionalToArray(channel)]);
+        return stdout.join('');
+    }
+    async list() {
+        const { stdout } = await execOutput(this.toolName, ['list']);
+        return stdout.slice(1).map(parseLineToItem);
+    }
+}
+function parseLineToItem(line) {
+    const [name, url, default_, channel] = line.split(/ +/);
+    return {
+        name,
+        url,
+        default: default_,
+        channel
+    };
+}
+
 function parseInputs() {
     return {
         channel: coreExports.getInput('channel'),
@@ -29883,31 +29977,6 @@ async function downloadParallel(binUrl, sigUrl, ascUrl) {
         toolCacheExports.downloadTool(ascUrl)
     ]);
 }
-async function assertSystemGnuPG() {
-    // How to capture stdout
-    // https://github.com/actions/toolkit/tree/main/packages/exec#outputoptions
-    let stdout = Buffer$1.alloc(0);
-    // https://github.com/actions/toolkit/blob/%40actions/exec%401.0.1/packages/exec/src/interfaces.ts
-    const options = {
-        silent: true,
-        failOnStdErr: true,
-        listeners: {
-            stdout(data) {
-                stdout = Buffer$1.concat([stdout, data]);
-            }
-        }
-    };
-    await execExports.exec('gpg', ['--help'], options);
-    const isGnuGPG = stdout.toString().toLowerCase().includes('GnuPG'.toLowerCase());
-    if (!isGnuGPG) {
-        throw new Error('gpg is not GnuPG. Please install GnuPG');
-    }
-}
-async function gpgVerify(binPath, sigPath, ascPath) {
-    await assertSystemGnuPG();
-    await execExports.exec('gpg', ['--import', ascPath]);
-    await execExports.exec('gpg', ['--verify', sigPath, binPath]);
-}
 function findTrdlCache(toolName, toolVersion) {
     return toolCacheExports.find(toolName, toolVersion);
 }
@@ -29921,17 +29990,34 @@ async function installTrdl(toolName, toolVersion, binPath) {
 }
 async function Run() {
     const options = await getOptions(parseInputs());
-    const [binUrl, sigUrl, ascUrl] = formatDownloadUrls(options);
     const toolName = 'trdl';
     const toolVersion = options.version;
     const toolCache = findTrdlCache(toolName, toolVersion);
     if (toolCache) {
         coreExports.info(`trdl@v${toolVersion} is found at path ${toolCache}. Installation skipped.`);
+        const trdlCli = new TrdlCli();
+        await trdlCli.mustExist();
+        const args = {
+            repo: toolName,
+            group: '0',
+            channel: 'stable'
+        };
+        coreExports.startGroup(`Updating trdl to group=${args.group} and channel=${args.channel}`);
+        await trdlCli.update(args);
+        coreExports.endGroup();
         return;
     }
+    const gpgCli = new GpgCli();
+    await gpgCli.mustGnuGP();
+    const [binUrl, sigUrl, ascUrl] = formatDownloadUrls(options);
     const [binPath, sigPath, ascPath] = await downloadParallel(binUrl, sigUrl, ascUrl);
-    await gpgVerify(binPath, sigPath, ascPath);
+    coreExports.startGroup('Importing and verifying gpg keys.');
+    await gpgCli.import(ascPath);
+    await gpgCli.verify(sigPath, binPath);
+    coreExports.endGroup();
+    coreExports.startGroup('Installing trdl and adding it to the $PATH.');
     await installTrdl(toolName, toolVersion, binPath);
+    coreExports.endGroup();
 }
 
 /**
