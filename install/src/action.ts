@@ -1,9 +1,9 @@
-import { Buffer } from 'node:buffer'
-import { getInput, platform, addPath, info } from '@actions/core'
-import { exec } from '@actions/exec'
+import { getInput, platform, addPath, info, startGroup, endGroup } from '@actions/core'
 import { HttpClient } from '@actions/http-client'
 import { downloadTool, find, cacheFile } from '@actions/tool-cache'
 import { chmodSync } from 'node:fs'
+import { GpgCli } from '../../lib/gpg-cli'
+import { TrdlCli } from '../../lib/trdl-cli'
 
 interface inputs {
   channel: string
@@ -79,38 +79,6 @@ async function downloadParallel(binUrl: string, sigUrl: string, ascUrl: string):
   ])
 }
 
-async function assertSystemGnuPG(): Promise<void> {
-  // How to capture stdout
-  // https://github.com/actions/toolkit/tree/main/packages/exec#outputoptions
-
-  let stdout = Buffer.alloc(0)
-
-  // https://github.com/actions/toolkit/blob/%40actions/exec%401.0.1/packages/exec/src/interfaces.ts
-  const options = {
-    silent: true,
-    failOnStdErr: true,
-    listeners: {
-      stdout(data: Buffer) {
-        stdout = Buffer.concat([stdout, data])
-      }
-    }
-  }
-
-  await exec('gpg', ['--help'], options)
-
-  const isGnuGPG = stdout.toString().toLowerCase().includes('GnuPG'.toLowerCase())
-
-  if (!isGnuGPG) {
-    throw new Error('gpg is not GnuPG. Please install GnuPG')
-  }
-}
-
-async function gpgVerify(binPath: string, sigPath: string, ascPath: string): Promise<void> {
-  await assertSystemGnuPG()
-  await exec('gpg', ['--import', ascPath])
-  await exec('gpg', ['--verify', sigPath, binPath])
-}
-
 function findTrdlCache(toolName: string, toolVersion: string): string {
   return find(toolName, toolVersion)
 }
@@ -126,19 +94,43 @@ async function installTrdl(toolName: string, toolVersion: string, binPath: strin
 
 export async function Run(): Promise<void> {
   const options = await getOptions(parseInputs())
-  const [binUrl, sigUrl, ascUrl] = formatDownloadUrls(options)
 
   const toolName = 'trdl'
   const toolVersion = options.version
 
   const toolCache = findTrdlCache(toolName, toolVersion)
+
   if (toolCache) {
     info(`trdl@v${toolVersion} is found at path ${toolCache}. Installation skipped.`)
+
+    const trdlCli = new TrdlCli()
+    await trdlCli.mustExist()
+
+    const args = {
+      repo: toolName,
+      group: '0',
+      channel: 'stable'
+    }
+
+    startGroup(`Updating trdl to group=${args.group} and channel=${args.channel}`)
+    await trdlCli.update(args)
+    endGroup()
+
     return
   }
 
-  const [binPath, sigPath, ascPath] = await downloadParallel(binUrl, sigUrl, ascUrl)
-  await gpgVerify(binPath, sigPath, ascPath)
+  const gpgCli = new GpgCli()
+  await gpgCli.mustGnuGP()
 
+  const [binUrl, sigUrl, ascUrl] = formatDownloadUrls(options)
+  const [binPath, sigPath, ascPath] = await downloadParallel(binUrl, sigUrl, ascUrl)
+
+  startGroup('Importing and verifying gpg keys.')
+  await gpgCli.import(ascPath)
+  await gpgCli.verify(sigPath, binPath)
+  endGroup()
+
+  startGroup('Installing trdl and adding it to the $PATH.')
   await installTrdl(toolName, toolVersion, binPath)
+  endGroup()
 }
