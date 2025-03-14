@@ -23,7 +23,7 @@ This repository allows you to organize CI/CD with GitHub Actions and
 
 - name: Run werf
   run: |
-    . $(trdl add werf https://... 10 zsfdgcvhsxfdcghvjkl)
+    . $(trdl add werf https://tuf.werf.io 12 e1d3c7bcfdf473fe1466c5e9d9030bea0fed857d0563db1407754d2795256e4d063b099156807346cdcdc21d747326cc43f96fa2cacda5f1c67c8349fe09894d)
     . $(trdl use werf 2 stable)
     . $(werf ci-env github --as-file)
     werf converge
