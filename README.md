@@ -15,16 +15,13 @@ This repository allows you to organize CI/CD with GitHub Actions and
 
 ## Examples
 
-### Add and use `werf` via the preset of trdl-actions
+### Install trdl, "trdl add" and "trdl use" `werf` via the preset from trdl-actions
 
 ```yaml
-- name: Install trdl
-  uses: werf/trdl-actions/install@v0
-
 - name: Use werf
   uses: werf/trdl-actions/setup-app@v0
   inputs:
-    # use "werf" preset of trdl-actions to do "trdl add" AND "trdl use" for werf
+    # use "werf" preset from trdl-actions to install trdl, "trdl add" and "trdl use" werf
     preset: werf
 
 - name: Run werf
