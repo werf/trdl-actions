@@ -1,10 +1,10 @@
 import { execOutput } from './exec'
 
 export class GpgCli {
-  private readonly bin: string
+  readonly name: string
 
-  constructor(bin: string = 'gpg') {
-    this.bin = bin
+  constructor() {
+    this.name = 'gpg'
   }
 
   async mustGnuGP(): Promise<void> {
@@ -15,15 +15,15 @@ export class GpgCli {
   }
 
   async import(ascPath: string): Promise<void> {
-    await execOutput(this.bin, ['--import', ascPath])
+    await execOutput(this.name, ['--import', ascPath])
   }
 
   async verify(sigPath: string, binPath: string): Promise<void> {
-    await execOutput(this.bin, ['--verify', sigPath, binPath])
+    await execOutput(this.name, ['--verify', sigPath, binPath])
   }
 
   async help(): Promise<string> {
-    const { stdout } = await execOutput(this.bin, ['--help'])
+    const { stdout } = await execOutput(this.name, ['--help'])
     return stdout.join('')
   }
 }
