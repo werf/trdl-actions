@@ -3,7 +3,8 @@ import { AddArgs, BinPathArgs, UpdateArgs } from '../../lib/trdl-cli'
 
 export enum preset {
   unknown = 'unknown',
-  werf = 'werf'
+  werf = 'werf',
+  kubedog = 'kubedog'
 }
 
 const cmdAddArgsMap: Record<preset, AddArgs> = {
@@ -16,9 +17,16 @@ const cmdAddArgsMap: Record<preset, AddArgs> = {
   [preset.werf]: {
     repo: preset.werf,
     url: 'https://tuf.werf.io',
-    rootVersion: '2',
+    rootVersion: '12',
     rootSha512:
-      '9c075fb1b91d69308ac3ded709c0f12779f554e852aa90e2595994c217d767e06508b686db7d55fd99e96f357b1ba3640aed1ebe62fc15c9358a70d41355f46c'
+      'e1d3c7bcfdf473fe1466c5e9d9030bea0fed857d0563db1407754d2795256e4d063b099156807346cdcdc21d747326cc43f96fa2cacda5f1c67c8349fe09894d'
+  },
+  [preset.kubedog]: {
+    repo: preset.kubedog,
+    url: 'https://tuf.kubedog.werf.io',
+    rootVersion: '12',
+    rootSha512:
+      '6462a80292eb6d7712d8a18126366511f9c47a566f121a7745cfd68b624dc340b6591c2cadfe20690eb38296c399a3f4e6948aca90be60e446ed05c3c238294c'
   }
 }
 
@@ -32,6 +40,11 @@ const cmdUpdateArgsMap: Record<preset, UpdateArgs | BinPathArgs> = {
     repo: preset.werf,
     group: 'stable',
     channel: '2'
+  },
+  [preset.kubedog]: {
+    repo: preset.kubedog,
+    group: 'stable',
+    channel: '0'
   }
 }
 
