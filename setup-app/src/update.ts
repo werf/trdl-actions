@@ -41,22 +41,13 @@ export async function Do(trdlCli: TrdlCli, p: preset) {
 
   const list = await trdlCli.list()
   const found = list.find((item) => args.repo === item.name)
-
   if (!found) {
-    info('Application not found. Updating it via "trdl update".')
-    await trdlCli.update(args)
-    endGroup()
-    return
+    throw new Error(
+        `Repository "${args.repo}" is not found. It must be added first using "trdl add"`
+    );
   }
-
-  if (args?.channel) {
-    if (found.channel !== args.channel) {
-      throw new Error(`Found app channel=${found.channel} is not matched with given input.channel=${args.channel}`)
-    }
-  }
-
-  // force updating
-  info('Force updating application via "trdl update".')
+  
+  info('Updating application via "trdl update".')
   await trdlCli.update(args)
   endGroup()
 }
