@@ -9,9 +9,9 @@ This repository provides actions for seamless integration of trdl into your GitH
 
 * [Workflows](#workflows)
   * [Install trdl with `werf/trdl-actions/install` action](#install-trdl-with-werftrdl-actionsinstall-action)
-  * [Setting up your application with `werf/trdl-actions/setup-app` action](#setting-up-your-application-with-werftrdl-actionssetup-app-action)
-    * [Set up a specific application](#set-up-a-specific-application)
-    * [Set up a preset application](#set-up-a-preset-application)
+  * [Set up your application executable files with `werf/trdl-actions/setup-app` action](#set-up-your-application-executable-files-with-werftrdl-actionssetup-app-action)
+    * [A specific application](#a-specific-application)
+    * [A preset application](#a-preset-application)
 * [License](#license)
 
 ## Workflows
