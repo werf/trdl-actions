@@ -50,10 +50,15 @@ export async function Do(trdlCli: TrdlCli, p: preset) {
     return
   }
 
-  if (found.url !== args.url && !inputs.force) {
-    throw new Error(
-      `Already added repo.url=${found.url} is not matched with given input.url=${args.url}. Use the force input to overwrite.`
-    )
+  if (!inputs.force) {
+    if (found.url !== args.url) {
+      throw new Error(
+        `Already added repo.url=${found.url} is not matched with given input.url=${args.url}. Use the force input to overwrite.`
+      )
+    }
+    info(format('Adding skipped. Application is already added with inputs.url=%s.', args.url))
+    endGroup()
+    return
   }
 
   // force adding
