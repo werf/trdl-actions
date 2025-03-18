@@ -31,6 +31,10 @@ import { chmodSync } from 'node:fs';
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
+function getDefaultExportFromCjs (x) {
+	return x && x.__esModule && Object.prototype.hasOwnProperty.call(x, 'default') ? x['default'] : x;
+}
+
 var core = {};
 
 var command = {};
@@ -27251,6 +27255,7 @@ var preset;
 (function (preset) {
     preset["unknown"] = "unknown";
     preset["werf"] = "werf";
+    preset["kubedog"] = "kubedog";
 })(preset || (preset = {}));
 const cmdAddArgsMap = {
     [preset.unknown]: {
@@ -27262,8 +27267,14 @@ const cmdAddArgsMap = {
     [preset.werf]: {
         repo: preset.werf,
         url: 'https://tuf.werf.io',
-        rootVersion: '2',
-        rootSha512: '9c075fb1b91d69308ac3ded709c0f12779f554e852aa90e2595994c217d767e06508b686db7d55fd99e96f357b1ba3640aed1ebe62fc15c9358a70d41355f46c'
+        rootVersion: '12',
+        rootSha512: 'e1d3c7bcfdf473fe1466c5e9d9030bea0fed857d0563db1407754d2795256e4d063b099156807346cdcdc21d747326cc43f96fa2cacda5f1c67c8349fe09894d'
+    },
+    [preset.kubedog]: {
+        repo: preset.kubedog,
+        url: 'https://tuf.kubedog.werf.io',
+        rootVersion: '12',
+        rootSha512: '6462a80292eb6d7712d8a18126366511f9c47a566f121a7745cfd68b624dc340b6591c2cadfe20690eb38296c399a3f4e6948aca90be60e446ed05c3c238294c'
     }
 };
 const cmdUpdateArgsMap = {
@@ -27276,6 +27287,11 @@ const cmdUpdateArgsMap = {
         repo: preset.werf,
         group: 'stable',
         channel: '2'
+    },
+    [preset.kubedog]: {
+        repo: preset.kubedog,
+        group: 'stable',
+        channel: '0'
     }
 };
 function getAddArgs(presetVal) {
@@ -27352,13 +27368,18 @@ class TrdlCli {
         const { repo } = args;
         await execOutput(this.name, ['remove', repo]);
     }
-    async update(args) {
+    async update(args, opts) {
         const { repo, group, channel } = args;
-        await execOutput(this.name, ['update', repo, group, ...optionalToArray(channel)]);
+        const env = { ...process.env, ...(opts && toUpdateEnvs(opts)) };
+        await execOutput(this.name, ['update', repo, group, ...optionalToArray(channel)], { env });
     }
     async binPath(args) {
         const { repo, group, channel } = args;
-        const { stdout } = await execOutput(this.name, ['bin-path', repo, group, ...optionalToArray(channel)]);
+        const execOpts = {
+            failOnStdErr: false,
+            ignoreReturnCode: true
+        };
+        const { stdout } = await execOutput(this.name, ['bin-path', repo, group, ...optionalToArray(channel)], execOpts);
         return stdout.join('');
     }
     async list() {
@@ -27374,6 +27395,13 @@ function parseLineToItem(line) {
         default: default_,
         channel
     };
+}
+function toUpdateEnvs(opts) {
+    const env = {};
+    if (opts?.inBackground) {
+        env['TRDL_IN_BACKGROUND'] = String(opts.inBackground);
+    }
+    return env;
 }
 
 var libExports = requireLib();
@@ -30036,7 +30064,7 @@ async function installTrdl(toolName, toolVersion, binPath) {
     // add tool to $PATH
     coreExports.addPath(installedPath);
 }
-async function Do$3(trdlCli, inputs) {
+async function Do$2(trdlCli, inputs) {
     coreExports.startGroup('Install or self-update trdl.');
     coreExports.debug(format(`parsed inputs=%o`, inputs));
     const defaults = trdlCli.defaults();
@@ -30068,7 +30096,7 @@ async function Do$3(trdlCli, inputs) {
     coreExports.endGroup();
 }
 
-function parseInputs$2(required) {
+function parseInputs$1(required) {
     return {
         force: coreExports.getBooleanInput('force', { required }),
         repo: coreExports.getInput('repo', { required }),
@@ -30086,11 +30114,11 @@ function mapInputsCmdArgs(inputs) {
         rootSha512
     };
 }
-async function Do$2(trdlCli, p) {
+async function Do$1(trdlCli, p) {
     coreExports.startGroup('Adding application via "trdl add".');
     const noPreset = p === preset.unknown;
     coreExports.debug(format(`using preset=%s`, !noPreset));
-    const inputs = parseInputs$2(noPreset);
+    const inputs = parseInputs$1(noPreset);
     coreExports.debug(format(`parsed inputs=%o`, inputs));
     const args = noPreset ? mapInputsCmdArgs(inputs) : getAddArgs(p);
     coreExports.debug(format(`merged(preset, inputs) args=%o`, args));
@@ -30098,76 +30126,110 @@ async function Do$2(trdlCli, p) {
     const list = await trdlCli.list();
     const found = list.find((item) => args.repo === item.name);
     if (!found) {
-        coreExports.info('Application not found. Adding it via "trdl add".');
+        coreExports.info(format('Application not found. Adding it via "trdl add" with args=%o.', args));
         await trdlCli.add(args);
         coreExports.endGroup();
         return;
     }
-    if (found.url !== args.url) {
-        throw new Error(`Already added repo.url=${found.url} is not matched with given input.url=${args.url}`);
-    }
     if (!inputs.force) {
-        coreExports.info(format('Adding skipped. Application found, but inputs.force=%s.', inputs.force));
+        if (found.url !== args.url) {
+            throw new Error(`Already added repo.url=${found.url} is not matched with given input.url=${args.url}. Use the force input to overwrite.`);
+        }
+        coreExports.info(format('Adding skipped. Application is already added with inputs.url=%s.', args.url));
         coreExports.endGroup();
         return;
     }
     // force adding
-    coreExports.info('Force adding application using combination of "trdl remove" and "trdl add".');
+    coreExports.info(format('Force adding application using sequence of "trdl remove" and "trdl add" with args=%o.', args));
     await trdlCli.remove(args);
     await trdlCli.add(args);
     coreExports.endGroup();
 }
 
-function parseInputs$1(required) {
+var slugify$2 = {exports: {}};
+
+var slugify$1 = slugify$2.exports;
+
+var hasRequiredSlugify;
+
+function requireSlugify () {
+	if (hasRequiredSlugify) return slugify$2.exports;
+	hasRequiredSlugify = 1;
+	(function (module, exports) {
+(function (name, root, factory) {
+		  {
+		    module.exports = factory();
+		    module.exports['default'] = factory();
+		  }
+		}('slugify', slugify$1, function () {
+		  var charMap = JSON.parse('{"$":"dollar","%":"percent","&":"and","<":"less",">":"greater","|":"or","¢":"cent","£":"pound","¤":"currency","¥":"yen","©":"(c)","ª":"a","®":"(r)","º":"o","À":"A","Á":"A","Â":"A","Ã":"A","Ä":"A","Å":"A","Æ":"AE","Ç":"C","È":"E","É":"E","Ê":"E","Ë":"E","Ì":"I","Í":"I","Î":"I","Ï":"I","Ð":"D","Ñ":"N","Ò":"O","Ó":"O","Ô":"O","Õ":"O","Ö":"O","Ø":"O","Ù":"U","Ú":"U","Û":"U","Ü":"U","Ý":"Y","Þ":"TH","ß":"ss","à":"a","á":"a","â":"a","ã":"a","ä":"a","å":"a","æ":"ae","ç":"c","è":"e","é":"e","ê":"e","ë":"e","ì":"i","í":"i","î":"i","ï":"i","ð":"d","ñ":"n","ò":"o","ó":"o","ô":"o","õ":"o","ö":"o","ø":"o","ù":"u","ú":"u","û":"u","ü":"u","ý":"y","þ":"th","ÿ":"y","Ā":"A","ā":"a","Ă":"A","ă":"a","Ą":"A","ą":"a","Ć":"C","ć":"c","Č":"C","č":"c","Ď":"D","ď":"d","Đ":"DJ","đ":"dj","Ē":"E","ē":"e","Ė":"E","ė":"e","Ę":"e","ę":"e","Ě":"E","ě":"e","Ğ":"G","ğ":"g","Ģ":"G","ģ":"g","Ĩ":"I","ĩ":"i","Ī":"i","ī":"i","Į":"I","į":"i","İ":"I","ı":"i","Ķ":"k","ķ":"k","Ļ":"L","ļ":"l","Ľ":"L","ľ":"l","Ł":"L","ł":"l","Ń":"N","ń":"n","Ņ":"N","ņ":"n","Ň":"N","ň":"n","Ō":"O","ō":"o","Ő":"O","ő":"o","Œ":"OE","œ":"oe","Ŕ":"R","ŕ":"r","Ř":"R","ř":"r","Ś":"S","ś":"s","Ş":"S","ş":"s","Š":"S","š":"s","Ţ":"T","ţ":"t","Ť":"T","ť":"t","Ũ":"U","ũ":"u","Ū":"u","ū":"u","Ů":"U","ů":"u","Ű":"U","ű":"u","Ų":"U","ų":"u","Ŵ":"W","ŵ":"w","Ŷ":"Y","ŷ":"y","Ÿ":"Y","Ź":"Z","ź":"z","Ż":"Z","ż":"z","Ž":"Z","ž":"z","Ə":"E","ƒ":"f","Ơ":"O","ơ":"o","Ư":"U","ư":"u","ǈ":"LJ","ǉ":"lj","ǋ":"NJ","ǌ":"nj","Ș":"S","ș":"s","Ț":"T","ț":"t","ə":"e","˚":"o","Ά":"A","Έ":"E","Ή":"H","Ί":"I","Ό":"O","Ύ":"Y","Ώ":"W","ΐ":"i","Α":"A","Β":"B","Γ":"G","Δ":"D","Ε":"E","Ζ":"Z","Η":"H","Θ":"8","Ι":"I","Κ":"K","Λ":"L","Μ":"M","Ν":"N","Ξ":"3","Ο":"O","Π":"P","Ρ":"R","Σ":"S","Τ":"T","Υ":"Y","Φ":"F","Χ":"X","Ψ":"PS","Ω":"W","Ϊ":"I","Ϋ":"Y","ά":"a","έ":"e","ή":"h","ί":"i","ΰ":"y","α":"a","β":"b","γ":"g","δ":"d","ε":"e","ζ":"z","η":"h","θ":"8","ι":"i","κ":"k","λ":"l","μ":"m","ν":"n","ξ":"3","ο":"o","π":"p","ρ":"r","ς":"s","σ":"s","τ":"t","υ":"y","φ":"f","χ":"x","ψ":"ps","ω":"w","ϊ":"i","ϋ":"y","ό":"o","ύ":"y","ώ":"w","Ё":"Yo","Ђ":"DJ","Є":"Ye","І":"I","Ї":"Yi","Ј":"J","Љ":"LJ","Њ":"NJ","Ћ":"C","Џ":"DZ","А":"A","Б":"B","В":"V","Г":"G","Д":"D","Е":"E","Ж":"Zh","З":"Z","И":"I","Й":"J","К":"K","Л":"L","М":"M","Н":"N","О":"O","П":"P","Р":"R","С":"S","Т":"T","У":"U","Ф":"F","Х":"H","Ц":"C","Ч":"Ch","Ш":"Sh","Щ":"Sh","Ъ":"U","Ы":"Y","Ь":"","Э":"E","Ю":"Yu","Я":"Ya","а":"a","б":"b","в":"v","г":"g","д":"d","е":"e","ж":"zh","з":"z","и":"i","й":"j","к":"k","л":"l","м":"m","н":"n","о":"o","п":"p","р":"r","с":"s","т":"t","у":"u","ф":"f","х":"h","ц":"c","ч":"ch","ш":"sh","щ":"sh","ъ":"u","ы":"y","ь":"","э":"e","ю":"yu","я":"ya","ё":"yo","ђ":"dj","є":"ye","і":"i","ї":"yi","ј":"j","љ":"lj","њ":"nj","ћ":"c","ѝ":"u","џ":"dz","Ґ":"G","ґ":"g","Ғ":"GH","ғ":"gh","Қ":"KH","қ":"kh","Ң":"NG","ң":"ng","Ү":"UE","ү":"ue","Ұ":"U","ұ":"u","Һ":"H","һ":"h","Ә":"AE","ә":"ae","Ө":"OE","ө":"oe","Ա":"A","Բ":"B","Գ":"G","Դ":"D","Ե":"E","Զ":"Z","Է":"E\'","Ը":"Y\'","Թ":"T\'","Ժ":"JH","Ի":"I","Լ":"L","Խ":"X","Ծ":"C\'","Կ":"K","Հ":"H","Ձ":"D\'","Ղ":"GH","Ճ":"TW","Մ":"M","Յ":"Y","Ն":"N","Շ":"SH","Չ":"CH","Պ":"P","Ջ":"J","Ռ":"R\'","Ս":"S","Վ":"V","Տ":"T","Ր":"R","Ց":"C","Փ":"P\'","Ք":"Q\'","Օ":"O\'\'","Ֆ":"F","և":"EV","ء":"a","آ":"aa","أ":"a","ؤ":"u","إ":"i","ئ":"e","ا":"a","ب":"b","ة":"h","ت":"t","ث":"th","ج":"j","ح":"h","خ":"kh","د":"d","ذ":"th","ر":"r","ز":"z","س":"s","ش":"sh","ص":"s","ض":"dh","ط":"t","ظ":"z","ع":"a","غ":"gh","ف":"f","ق":"q","ك":"k","ل":"l","م":"m","ن":"n","ه":"h","و":"w","ى":"a","ي":"y","ً":"an","ٌ":"on","ٍ":"en","َ":"a","ُ":"u","ِ":"e","ْ":"","٠":"0","١":"1","٢":"2","٣":"3","٤":"4","٥":"5","٦":"6","٧":"7","٨":"8","٩":"9","پ":"p","چ":"ch","ژ":"zh","ک":"k","گ":"g","ی":"y","۰":"0","۱":"1","۲":"2","۳":"3","۴":"4","۵":"5","۶":"6","۷":"7","۸":"8","۹":"9","฿":"baht","ა":"a","ბ":"b","გ":"g","დ":"d","ე":"e","ვ":"v","ზ":"z","თ":"t","ი":"i","კ":"k","ლ":"l","მ":"m","ნ":"n","ო":"o","პ":"p","ჟ":"zh","რ":"r","ს":"s","ტ":"t","უ":"u","ფ":"f","ქ":"k","ღ":"gh","ყ":"q","შ":"sh","ჩ":"ch","ც":"ts","ძ":"dz","წ":"ts","ჭ":"ch","ხ":"kh","ჯ":"j","ჰ":"h","Ṣ":"S","ṣ":"s","Ẁ":"W","ẁ":"w","Ẃ":"W","ẃ":"w","Ẅ":"W","ẅ":"w","ẞ":"SS","Ạ":"A","ạ":"a","Ả":"A","ả":"a","Ấ":"A","ấ":"a","Ầ":"A","ầ":"a","Ẩ":"A","ẩ":"a","Ẫ":"A","ẫ":"a","Ậ":"A","ậ":"a","Ắ":"A","ắ":"a","Ằ":"A","ằ":"a","Ẳ":"A","ẳ":"a","Ẵ":"A","ẵ":"a","Ặ":"A","ặ":"a","Ẹ":"E","ẹ":"e","Ẻ":"E","ẻ":"e","Ẽ":"E","ẽ":"e","Ế":"E","ế":"e","Ề":"E","ề":"e","Ể":"E","ể":"e","Ễ":"E","ễ":"e","Ệ":"E","ệ":"e","Ỉ":"I","ỉ":"i","Ị":"I","ị":"i","Ọ":"O","ọ":"o","Ỏ":"O","ỏ":"o","Ố":"O","ố":"o","Ồ":"O","ồ":"o","Ổ":"O","ổ":"o","Ỗ":"O","ỗ":"o","Ộ":"O","ộ":"o","Ớ":"O","ớ":"o","Ờ":"O","ờ":"o","Ở":"O","ở":"o","Ỡ":"O","ỡ":"o","Ợ":"O","ợ":"o","Ụ":"U","ụ":"u","Ủ":"U","ủ":"u","Ứ":"U","ứ":"u","Ừ":"U","ừ":"u","Ử":"U","ử":"u","Ữ":"U","ữ":"u","Ự":"U","ự":"u","Ỳ":"Y","ỳ":"y","Ỵ":"Y","ỵ":"y","Ỷ":"Y","ỷ":"y","Ỹ":"Y","ỹ":"y","–":"-","‘":"\'","’":"\'","“":"\\\"","”":"\\\"","„":"\\\"","†":"+","•":"*","…":"...","₠":"ecu","₢":"cruzeiro","₣":"french franc","₤":"lira","₥":"mill","₦":"naira","₧":"peseta","₨":"rupee","₩":"won","₪":"new shequel","₫":"dong","€":"euro","₭":"kip","₮":"tugrik","₯":"drachma","₰":"penny","₱":"peso","₲":"guarani","₳":"austral","₴":"hryvnia","₵":"cedi","₸":"kazakhstani tenge","₹":"indian rupee","₺":"turkish lira","₽":"russian ruble","₿":"bitcoin","℠":"sm","™":"tm","∂":"d","∆":"delta","∑":"sum","∞":"infinity","♥":"love","元":"yuan","円":"yen","﷼":"rial","ﻵ":"laa","ﻷ":"laa","ﻹ":"lai","ﻻ":"la"}');
+		  var locales = JSON.parse('{"bg":{"Й":"Y","Ц":"Ts","Щ":"Sht","Ъ":"A","Ь":"Y","й":"y","ц":"ts","щ":"sht","ъ":"a","ь":"y"},"de":{"Ä":"AE","ä":"ae","Ö":"OE","ö":"oe","Ü":"UE","ü":"ue","ß":"ss","%":"prozent","&":"und","|":"oder","∑":"summe","∞":"unendlich","♥":"liebe"},"es":{"%":"por ciento","&":"y","<":"menor que",">":"mayor que","|":"o","¢":"centavos","£":"libras","¤":"moneda","₣":"francos","∑":"suma","∞":"infinito","♥":"amor"},"fr":{"%":"pourcent","&":"et","<":"plus petit",">":"plus grand","|":"ou","¢":"centime","£":"livre","¤":"devise","₣":"franc","∑":"somme","∞":"infini","♥":"amour"},"pt":{"%":"porcento","&":"e","<":"menor",">":"maior","|":"ou","¢":"centavo","∑":"soma","£":"libra","∞":"infinito","♥":"amor"},"uk":{"И":"Y","и":"y","Й":"Y","й":"y","Ц":"Ts","ц":"ts","Х":"Kh","х":"kh","Щ":"Shch","щ":"shch","Г":"H","г":"h"},"vi":{"Đ":"D","đ":"d"},"da":{"Ø":"OE","ø":"oe","Å":"AA","å":"aa","%":"procent","&":"og","|":"eller","$":"dollar","<":"mindre end",">":"større end"},"nb":{"&":"og","Å":"AA","Æ":"AE","Ø":"OE","å":"aa","æ":"ae","ø":"oe"},"it":{"&":"e"},"nl":{"&":"en"},"sv":{"&":"och","Å":"AA","Ä":"AE","Ö":"OE","å":"aa","ä":"ae","ö":"oe"}}');
+
+		  function replace (string, options) {
+		    if (typeof string !== 'string') {
+		      throw new Error('slugify: string argument expected')
+		    }
+
+		    options = (typeof options === 'string')
+		      ? {replacement: options}
+		      : options || {};
+
+		    var locale = locales[options.locale] || {};
+
+		    var replacement = options.replacement === undefined ? '-' : options.replacement;
+
+		    var trim = options.trim === undefined ? true : options.trim;
+
+		    var slug = string.normalize().split('')
+		      // replace characters based on charMap
+		      .reduce(function (result, ch) {
+		        var appendChar = locale[ch];
+		        if (appendChar === undefined) appendChar = charMap[ch];
+		        if (appendChar === undefined) appendChar = ch;
+		        if (appendChar === replacement) appendChar = ' ';
+		        return result + appendChar
+		          // remove not allowed characters
+		          .replace(options.remove || /[^\w\s$*_+~.()'"!\-:@]+/g, '')
+		      }, '');
+
+		    if (options.strict) {
+		      slug = slug.replace(/[^A-Za-z0-9\s]/g, '');
+		    }
+
+		    if (trim) {
+		      slug = slug.trim();
+		    }
+
+		    // Replace spaces with replacement character, treating multiple consecutive
+		    // spaces as a single space.
+		    slug = slug.replace(/\s+/g, replacement);
+
+		    if (options.lower) {
+		      slug = slug.toLowerCase();
+		    }
+
+		    return slug
+		  }
+
+		  replace.extend = function (customMap) {
+		    Object.assign(charMap, customMap);
+		  };
+
+		  return replace
+		})); 
+	} (slugify$2));
+	return slugify$2.exports;
+}
+
+var slugifyExports = requireSlugify();
+var slugify = /*@__PURE__*/getDefaultExportFromCjs(slugifyExports);
+
+function parseInputs(required) {
     return {
         force: coreExports.getBooleanInput('force', { required }),
         repo: coreExports.getInput('repo', { required }),
         group: coreExports.getInput('group', { required }),
         ...optionalToObject('channel', coreExports.getInput('channel')) // optional field
-    };
-}
-function mapInputsToCmdArgs$1(inputs) {
-    const { repo, group, channel } = inputs;
-    return {
-        repo,
-        group,
-        ...optionalToObject('channel', channel) // optional field
-    };
-}
-async function Do$1(trdlCli, p) {
-    coreExports.startGroup('Updating application via "trdl update"');
-    const noPreset = p === preset.unknown;
-    coreExports.debug(format(`using preset=%s`, !noPreset));
-    const inputs = parseInputs$1(noPreset);
-    coreExports.debug(format(`parsed inputs=%o`, inputs));
-    const args = noPreset ? mapInputsToCmdArgs$1(inputs) : getUpdateArgs(p);
-    coreExports.debug(format(`merged(preset, inputs) args=%o`, args));
-    await trdlCli.mustExist();
-    const list = await trdlCli.list();
-    const found = list.find((item) => args.repo === item.name);
-    if (!found) {
-        coreExports.info('Application not found. Updating it via "trdl update".');
-        await trdlCli.update(args);
-        coreExports.endGroup();
-        return;
-    }
-    if (args?.channel) {
-        if (found.channel !== args.channel) {
-            throw new Error(`Found app channel=${found.channel} is not matched with given input.channel=${args.channel}`);
-        }
-    }
-    // force updating
-    coreExports.info('Force updating application via "trdl update".');
-    await trdlCli.update(args);
-    coreExports.endGroup();
-}
-
-function parseInputs(required) {
-    const channel = coreExports.getInput('channel');
-    return {
-        repo: coreExports.getInput('repo', { required }),
-        group: coreExports.getInput('group', { required }),
-        ...optionalToObject('channel', channel) // optional field
     };
 }
 function mapInputsToCmdArgs(inputs) {
@@ -30178,29 +30240,42 @@ function mapInputsToCmdArgs(inputs) {
         ...optionalToObject('channel', channel) // optional field
     };
 }
+function formatTrdlUseEnv(args) {
+    const slugOpts = {
+        strict: true
+    };
+    return {
+        key: format('TRDL_USE_%s_GROUP_CHANNEL', slugify(args.repo, slugOpts)),
+        value: format(`%s %s`, args.group, args.channel || '')
+    };
+}
 async function Do(trdlCli, p) {
-    coreExports.startGroup('Modifying $PATH variable to use the application.');
+    coreExports.startGroup('Using application via "trdl update" and "trdl bin-path"');
     const noPreset = p === preset.unknown;
     coreExports.debug(format(`using preset=%s`, !noPreset));
     const inputs = parseInputs(noPreset);
     coreExports.debug(format(`parsed inputs=%o`, inputs));
     const args = noPreset ? mapInputsToCmdArgs(inputs) : getUpdateArgs(p);
-    coreExports.debug(format(`merged(preset, inputs) args=%o`, inputs));
+    coreExports.debug(format(`merged(preset, inputs) args=%o`, args));
     await trdlCli.mustExist();
-    const whichPath = await ioExports.which(args.repo, false);
-    coreExports.debug(format(`"which" application path=%s`, whichPath));
-    const appPath = await trdlCli.binPath(args);
+    let appPath = await trdlCli.binPath(args);
     coreExports.debug(format(`"trdl bin-path" application path=%s`, appPath));
-    if (whichPath !== '') {
-        if (whichPath !== appPath) {
-            throw new Error(`Found path=${whichPath} is not matched with "trdl bin-path"=${appPath}`);
-        }
-        coreExports.info('Modifying of $PATH skipped. Application is already exist in $PATH variable.');
-        coreExports.endGroup();
-        return;
+    if (!appPath) {
+        const opts = { inBackground: false };
+        coreExports.info(format('Updating application via "trdl update" with args=%o and options=%o.', args, opts));
+        await trdlCli.update(args, opts);
+        appPath = await trdlCli.binPath(args);
+        coreExports.debug(format(`"trdl bin-path" application path=%s`, appPath));
     }
-    // add app to $PATH
-    coreExports.info('Modifying $PATH variable.');
+    else {
+        const opts = { inBackground: true };
+        coreExports.info(format('Updating application via "trdl update" with args=%o and options=%o.', args, opts));
+        await trdlCli.update(args, opts);
+    }
+    const trdlUseEnv = formatTrdlUseEnv(args);
+    coreExports.info(format('Exporting $%s=%s', trdlUseEnv.key, trdlUseEnv.value));
+    coreExports.exportVariable(trdlUseEnv.key, trdlUseEnv.value);
+    coreExports.info(format('Extending $PATH variable with app_path=%s', appPath));
     coreExports.addPath(appPath);
     coreExports.endGroup();
 }
@@ -30208,8 +30283,7 @@ async function Do(trdlCli, p) {
 async function Run() {
     const p = parsePresetInput();
     const cli = new TrdlCli();
-    await Do$3(cli, {});
-    await Do$2(cli, p);
+    await Do$2(cli, {});
     await Do$1(cli, p);
     await Do(cli, p);
 }

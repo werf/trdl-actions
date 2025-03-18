@@ -29902,13 +29902,18 @@ class TrdlCli {
         const { repo } = args;
         await execOutput(this.name, ['remove', repo]);
     }
-    async update(args) {
+    async update(args, opts) {
         const { repo, group, channel } = args;
-        await execOutput(this.name, ['update', repo, group, ...optionalToArray(channel)]);
+        const env = { ...process.env, ...(opts && toUpdateEnvs(opts)) };
+        await execOutput(this.name, ['update', repo, group, ...optionalToArray(channel)], { env });
     }
     async binPath(args) {
         const { repo, group, channel } = args;
-        const { stdout } = await execOutput(this.name, ['bin-path', repo, group, ...optionalToArray(channel)]);
+        const execOpts = {
+            failOnStdErr: false,
+            ignoreReturnCode: true
+        };
+        const { stdout } = await execOutput(this.name, ['bin-path', repo, group, ...optionalToArray(channel)], execOpts);
         return stdout.join('');
     }
     async list() {
@@ -29924,6 +29929,13 @@ function parseLineToItem(line) {
         default: default_,
         channel
     };
+}
+function toUpdateEnvs(opts) {
+    const env = {};
+    if (opts?.inBackground) {
+        env['TRDL_IN_BACKGROUND'] = String(opts.inBackground);
+    }
+    return env;
 }
 
 function parseInputs() {

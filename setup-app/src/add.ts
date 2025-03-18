@@ -44,7 +44,7 @@ export async function Do(trdlCli: TrdlCli, p: preset) {
   const found = list.find((item) => args.repo === item.name)
 
   if (!found) {
-    info('Application not found. Adding it via "trdl add".')
+    info(format('Application not found. Adding it via "trdl add" with args=%o.', args))
     await trdlCli.add(args)
     endGroup()
     return
@@ -62,7 +62,7 @@ export async function Do(trdlCli: TrdlCli, p: preset) {
   }
 
   // force adding
-  info('Force adding application using combination of "trdl remove" and "trdl add".')
+  info(format('Force adding application using sequence of "trdl remove" and "trdl add" with args=%o.', args))
   await trdlCli.remove(args)
   await trdlCli.add(args)
   endGroup()

@@ -32,14 +32,19 @@ export class TrdlCli {
     await execOutput(this.name, ['remove', repo])
   }
 
-  async update(args: UpdateArgs) {
+  async update(args: UpdateArgs, opts?: UpdateOptions) {
     const { repo, group, channel } = args
-    await execOutput(this.name, ['update', repo, group, ...optionalToArray(channel)])
+    const env = { ...(process.env as execOptionsEnvs), ...(opts && toUpdateEnvs(opts)) }
+    await execOutput(this.name, ['update', repo, group, ...optionalToArray(channel)], { env })
   }
 
   async binPath(args: BinPathArgs): Promise<string> {
     const { repo, group, channel } = args
-    const { stdout } = await execOutput(this.name, ['bin-path', repo, group, ...optionalToArray(channel)])
+    const execOpts = {
+      failOnStdErr: false,
+      ignoreReturnCode: true
+    }
+    const { stdout } = await execOutput(this.name, ['bin-path', repo, group, ...optionalToArray(channel)], execOpts)
     return stdout.join('')
   }
 
@@ -66,6 +71,10 @@ export interface UpdateArgs {
   channel?: string
 }
 
+export interface UpdateOptions {
+  inBackground: boolean
+}
+
 export interface BinPathArgs extends UpdateArgs {}
 
 export interface Defaults extends UpdateArgs {
@@ -87,4 +96,16 @@ function parseLineToItem(line: string): ListItem {
     default: default_,
     channel
   }
+}
+
+interface execOptionsEnvs {
+  [key: string]: string
+}
+
+function toUpdateEnvs(opts: UpdateOptions): execOptionsEnvs {
+  const env: execOptionsEnvs = {}
+  if (opts?.inBackground) {
+    env['TRDL_IN_BACKGROUND'] = String(opts.inBackground)
+  }
+  return env
 }
