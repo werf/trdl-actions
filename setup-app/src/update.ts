@@ -42,11 +42,9 @@ export async function Do(trdlCli: TrdlCli, p: preset) {
   const list = await trdlCli.list()
   const found = list.find((item) => args.repo === item.name)
   if (!found) {
-    throw new Error(
-        `Repository "${args.repo}" is not found. It must be added first using "trdl add"`
-    );
+    throw new Error(`Repository "${args.repo}" is not found. It must be added first using "trdl add"`)
   }
-  
+
   info('Updating application via "trdl update".')
   await trdlCli.update(args)
   endGroup()

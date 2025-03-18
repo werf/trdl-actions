@@ -36,7 +36,7 @@ export async function Do(trdlCli: TrdlCli, p: preset) {
   debug(format(`merged(preset, inputs) args=%o`, inputs))
 
   await trdlCli.mustExist()
-  
+
   const appPath = await trdlCli.binPath(args)
   debug(format(`"trdl bin-path" application path=%s`, appPath))
 

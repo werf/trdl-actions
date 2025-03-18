@@ -50,10 +50,12 @@ export async function Do(trdlCli: TrdlCli, p: preset) {
     return
   }
 
-  if ((found.url !== args.url) && !inputs.force) {
-    throw new Error(`Already added repo.url=${found.url} is not matched with given input.url=${args.url}. Use the force input to overwrite.`)
+  if (found.url !== args.url && !inputs.force) {
+    throw new Error(
+      `Already added repo.url=${found.url} is not matched with given input.url=${args.url}. Use the force input to overwrite.`
+    )
   }
-  
+
   // force adding
   info('Force adding application using combination of "trdl remove" and "trdl add".')
   await trdlCli.remove(args)
