@@ -27303,7 +27303,7 @@ function getUpdateArgs(presetVal) {
 function parsePresetInput() {
     const p = coreExports.getInput('preset') || preset.unknown;
     if (!(p in preset)) {
-        throw new Error(`preset "${p}" not found. Available presets: ${Object.values(preset).join(' ,')}`);
+        throw new Error(`preset "${p}" not found. Available presets: ${Object.values(preset).join(', ')}`);
     }
     return p;
 }
@@ -27336,14 +27336,6 @@ async function execOutput(commandLine, args, options) {
     };
 }
 
-// optional array element
-function optionalToArray(arg) {
-    return arg ? [arg] : [];
-}
-function optionalToObject(key, value) {
-    return value ? { [key]: value } : {};
-}
-
 class TrdlCli {
     name;
     constructor() {
@@ -27371,7 +27363,8 @@ class TrdlCli {
     async update(args, opts) {
         const { repo, group, channel } = args;
         const env = { ...process.env, ...(opts && toUpdateEnvs(opts)) };
-        await execOutput(this.name, ['update', repo, group, ...optionalToArray(channel)], { env });
+        const channelOpt = channel !== undefined ? [channel] : []; // optional field
+        await execOutput(this.name, ['update', repo, group, ...channelOpt], { env });
     }
     async binPath(args) {
         const { repo, group, channel } = args;
@@ -27379,7 +27372,8 @@ class TrdlCli {
             failOnStdErr: false,
             ignoreReturnCode: true
         };
-        const { stdout } = await execOutput(this.name, ['bin-path', repo, group, ...optionalToArray(channel)], execOpts);
+        const channelOpt = channel !== undefined ? [channel] : []; // optional field
+        const { stdout } = await execOutput(this.name, ['bin-path', repo, group, ...channelOpt], execOpts);
         return stdout.join('');
     }
     async list() {
@@ -27388,20 +27382,44 @@ class TrdlCli {
     }
 }
 function parseLineToItem(line) {
-    const [name, url, default_, channel] = line.split(/ +/);
+    const [name, url, default_, channel] = line.trim().split(/ +/);
     return {
         name,
         url,
         default: default_,
-        channel
+        ...(channel !== undefined ? { channel } : {}) // optional field
     };
 }
 function toUpdateEnvs(opts) {
     const env = {};
-    if (opts?.inBackground) {
+    // eslint-disable-next-line no-prototype-builtins
+    if (opts.hasOwnProperty('inBackground')) {
         env['TRDL_IN_BACKGROUND'] = String(opts.inBackground);
     }
     return env;
+}
+
+class GpgCli {
+    name;
+    constructor() {
+        this.name = 'gpg';
+    }
+    async mustGnuGP() {
+        const help = await this.help();
+        if (!help.includes('GnuPG')) {
+            throw new Error('gpg is not GnuPG. Please install GnuPG');
+        }
+    }
+    async import(ascPath) {
+        await execOutput(this.name, ['--import', ascPath]);
+    }
+    async verify(sigPath, binPath) {
+        await execOutput(this.name, ['--verify', sigPath, binPath]);
+    }
+    async help() {
+        const { stdout } = await execOutput(this.name, ['--help']);
+        return stdout.join('\n');
+    }
 }
 
 var libExports = requireLib();
@@ -29976,29 +29994,6 @@ function requireToolCache () {
 
 var toolCacheExports = requireToolCache();
 
-class GpgCli {
-    name;
-    constructor() {
-        this.name = 'gpg';
-    }
-    async mustGnuGP() {
-        const help = await this.help();
-        if (!help.includes('GnuPG')) {
-            throw new Error('gpg is not GnuPG. Please install GnuPG');
-        }
-    }
-    async import(ascPath) {
-        await execOutput(this.name, ['--import', ascPath]);
-    }
-    async verify(sigPath, binPath) {
-        await execOutput(this.name, ['--verify', sigPath, binPath]);
-    }
-    async help() {
-        const { stdout } = await execOutput(this.name, ['--help']);
-        return stdout.join('');
-    }
-}
-
 async function fetchVersion(group, channel) {
     const client = new libExports.HttpClient();
     const resp = await client.get(`https://tuf.trdl.dev/targets/channels/${group}/${channel}`);
@@ -30006,8 +30001,8 @@ async function fetchVersion(group, channel) {
     return version.trim();
 }
 async function getOptions(inputs, defaults) {
-    const channel = inputs?.channel || defaults.channel;
-    const version = inputs?.version || await fetchVersion(defaults.group, defaults.channel); // prettier-ignore
+    const channel = inputs.channel ?? defaults.channel;
+    const version = inputs.version ?? await fetchVersion(defaults.group, defaults.channel); // prettier-ignore
     return {
         channel,
         version
@@ -30064,7 +30059,7 @@ async function installTrdl(toolName, toolVersion, binPath) {
     // add tool to $PATH
     coreExports.addPath(installedPath);
 }
-async function Do$2(trdlCli, inputs) {
+async function Do$2(trdlCli, gpgCli, inputs) {
     coreExports.startGroup('Install or self-update trdl.');
     coreExports.debug(format(`parsed inputs=%o`, inputs));
     const defaults = trdlCli.defaults();
@@ -30080,7 +30075,6 @@ async function Do$2(trdlCli, inputs) {
         coreExports.endGroup();
         return;
     }
-    const gpgCli = new GpgCli();
     await gpgCli.mustGnuGP();
     const [binUrl, sigUrl, ascUrl] = formatDownloadUrls(options.version);
     coreExports.debug(format('%s bin_url=%s', defaults.repo, binUrl));
@@ -30098,7 +30092,7 @@ async function Do$2(trdlCli, inputs) {
 
 function parseInputs$1(required) {
     return {
-        force: coreExports.getBooleanInput('force', { required }),
+        force: coreExports.getBooleanInput('force'),
         repo: coreExports.getInput('repo', { required }),
         url: coreExports.getInput('url', { required }),
         rootVersion: coreExports.getInput('root-version', { required }),
@@ -30225,11 +30219,12 @@ var slugifyExports = requireSlugify();
 var slugify = /*@__PURE__*/getDefaultExportFromCjs(slugifyExports);
 
 function parseInputs(required) {
+    const channel = coreExports.getInput('channel');
     return {
-        force: coreExports.getBooleanInput('force', { required }),
+        force: coreExports.getBooleanInput('force'),
         repo: coreExports.getInput('repo', { required }),
         group: coreExports.getInput('group', { required }),
-        ...optionalToObject('channel', coreExports.getInput('channel')) // optional field
+        ...(channel !== '' ? { channel } : {}) // optional field
     };
 }
 function mapInputsToCmdArgs(inputs) {
@@ -30237,7 +30232,7 @@ function mapInputsToCmdArgs(inputs) {
     return {
         repo,
         group,
-        ...optionalToObject('channel', channel) // optional field
+        ...(channel !== undefined ? { channel } : {}) // optional field
     };
 }
 function formatTrdlUseEnv(args) {
@@ -30245,7 +30240,7 @@ function formatTrdlUseEnv(args) {
         strict: true
     };
     return {
-        key: format('TRDL_USE_%s_GROUP_CHANNEL', slugify(args.repo, slugOpts)),
+        key: format('TRDL_USE_%s_GROUP_CHANNEL', slugify(args.repo, slugOpts).toUpperCase()),
         value: format(`%s %s`, args.group, args.channel || '')
     };
 }
@@ -30260,17 +30255,13 @@ async function Do(trdlCli, p) {
     await trdlCli.mustExist();
     let appPath = await trdlCli.binPath(args);
     coreExports.debug(format(`"trdl bin-path" application path=%s`, appPath));
-    if (!appPath) {
-        const opts = { inBackground: false };
-        coreExports.info(format('Updating application via "trdl update" with args=%o and options=%o.', args, opts));
-        await trdlCli.update(args, opts);
+    const hasAppPath = appPath !== '';
+    const opts = { inBackground: hasAppPath };
+    coreExports.info(format('Updating application via "trdl update" with args=%o and options=%o.', args, opts));
+    await trdlCli.update(args, opts);
+    if (!hasAppPath) {
         appPath = await trdlCli.binPath(args);
         coreExports.debug(format(`"trdl bin-path" application path=%s`, appPath));
-    }
-    else {
-        const opts = { inBackground: true };
-        coreExports.info(format('Updating application via "trdl update" with args=%o and options=%o.', args, opts));
-        await trdlCli.update(args, opts);
     }
     const trdlUseEnv = formatTrdlUseEnv(args);
     coreExports.info(format('Exporting $%s=%s', trdlUseEnv.key, trdlUseEnv.value));
@@ -30282,10 +30273,11 @@ async function Do(trdlCli, p) {
 
 async function Run() {
     const p = parsePresetInput();
-    const cli = new TrdlCli();
-    await Do$2(cli, {});
-    await Do$1(cli, p);
-    await Do(cli, p);
+    const trdlCli = new TrdlCli();
+    const gpgCli = new GpgCli();
+    await Do$2(trdlCli, gpgCli, {});
+    await Do$1(trdlCli, p);
+    await Do(trdlCli, p);
 }
 
 /**
