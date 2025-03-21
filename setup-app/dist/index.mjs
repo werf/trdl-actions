@@ -27286,13 +27286,13 @@ const cmdUpdateArgsMap = {
     },
     [preset.werf]: {
         repo: preset.werf,
-        group: 'stable',
-        channel: '2'
+        group: '2',
+        channel: 'stable'
     },
     [preset.kubedog]: {
         repo: preset.kubedog,
-        group: 'stable',
-        channel: '0'
+        group: '0',
+        channel: 'stable'
     }
 };
 function getAddArgs(presetVal) {
@@ -30067,7 +30067,7 @@ async function installTrdl(binPath, toolName, toolVersion) {
 }
 async function Do$2(trdlCli, gpgCli, inputs) {
     coreExports.startGroup(`Install or self-update ${trdlCli.name}.`);
-    coreExports.info(format(`parsed inputs=%o`, inputs));
+    coreExports.info(format(`Parsed inputs=%o`, inputs));
     const defaults = trdlCli.defaults();
     coreExports.info(format(`${trdlCli.name} repository defaults=%o`, defaults));
     const options = await getOptions(inputs, defaults);
@@ -30121,32 +30121,32 @@ function mapInputsCmdArgs(inputs) {
     };
 }
 async function Do$1(trdlCli, p) {
-    coreExports.startGroup('Adding application via "trdl add".');
+    coreExports.startGroup(`Adding application via "${trdlCli.name} add".`);
     const noPreset = p === preset.unknown;
-    coreExports.debug(format(`using preset=%s`, !noPreset));
+    coreExports.info(format(`Using preset=%s.`, !noPreset));
     const inputs = parseInputs$1(noPreset);
-    coreExports.debug(format(`parsed inputs=%o`, inputs));
+    coreExports.info(format(`Parsed inputs=%o.`, inputs));
     const args = noPreset ? mapInputsCmdArgs(inputs) : getAddArgs(p);
-    coreExports.debug(format(`merged(preset, inputs) args=%o`, args));
+    coreExports.info(format(`Options for finding and/or adding application=%o.`, args));
     await trdlCli.mustExist();
     const list = await trdlCli.list();
     const found = list.find((item) => args.repo === item.name);
     if (!found) {
-        coreExports.info(format('Application not found. Adding it via "trdl add" with args=%o.', args));
+        coreExports.info(`Application not found. Adding application via "${trdlCli.name} add".`);
         await trdlCli.add(args);
         coreExports.endGroup();
         return;
     }
     if (!inputs.force) {
         if (found.url !== args.url) {
-            throw new Error(`Already added repo.url=${found.url} is not matched with given input.url=${args.url}. Use the force input to overwrite.`);
+            throw new Error(`Application is already added with repo.url=${found.url} which is not matched with given input.url=${args.url}. Use the force input to overwrite.`);
         }
-        coreExports.info(format('Adding skipped. Application is already added with inputs.url=%s.', args.url));
+        coreExports.info(`Application addition skipped because it is already added with inputs.url=${args.url}.`);
         coreExports.endGroup();
         return;
     }
     // force adding
-    coreExports.info(format('Force adding application using sequence of "trdl remove" and "trdl add" with args=%o.', args));
+    coreExports.info(`Force adding application using "${trdlCli.name} remove" and "${trdlCli.name} add".`);
     await trdlCli.remove(args);
     await trdlCli.add(args);
     coreExports.endGroup();
@@ -30257,28 +30257,28 @@ function formatTrdlUseEnv(args) {
     };
 }
 async function Do(trdlCli, p) {
-    coreExports.startGroup('Using application via "trdl update" and "trdl bin-path"');
+    coreExports.startGroup(`Using application via "${trdlCli.name} update" and "${trdlCli.name} bin-path".`);
     const noPreset = p === preset.unknown;
-    coreExports.debug(format(`using preset=%s`, !noPreset));
+    coreExports.info(format(`Using preset=%s`, !noPreset));
     const inputs = parseInputs(noPreset);
-    coreExports.debug(format(`parsed inputs=%o`, inputs));
+    coreExports.info(format(`Parsed inputs=%o`, inputs));
     const args = noPreset ? mapInputsToCmdArgs(inputs) : getUpdateArgs(p);
-    coreExports.debug(format(`merged(preset, inputs) args=%o`, args));
+    coreExports.info(format(`Options for using application=%o`, args));
     await trdlCli.mustExist();
     let appPath = await trdlCli.binPath(args);
-    coreExports.debug(format(`"trdl bin-path" application path=%s`, appPath));
+    coreExports.info(`Found application path=${appPath}`);
     const hasAppPath = appPath !== '';
     const opts = { inBackground: hasAppPath };
-    coreExports.info(format('Updating application via "trdl update" with args=%o and options=%o.', args, opts));
+    coreExports.info(format(`Updating application via "${trdlCli.name} update" with options=%o`, opts));
     await trdlCli.update(args, opts);
     if (!hasAppPath) {
         appPath = await trdlCli.binPath(args);
-        coreExports.debug(format(`"trdl bin-path" application path=%s`, appPath));
+        coreExports.info(`Found application path=${appPath}`);
     }
     const trdlUseEnv = formatTrdlUseEnv(args);
-    coreExports.info(format('Exporting $%s=%s', trdlUseEnv.key, trdlUseEnv.value));
+    coreExports.info(format('Exporting variable $%s=%s', trdlUseEnv.key, trdlUseEnv.value));
     coreExports.exportVariable(trdlUseEnv.key, trdlUseEnv.value);
-    coreExports.info(format('Extending $PATH variable with app_path=%s', appPath));
+    coreExports.info(`Extending $PATH variable with app_path=${appPath}`);
     coreExports.addPath(appPath);
     coreExports.endGroup();
 }
