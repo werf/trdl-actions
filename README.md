@@ -1,9 +1,4 @@
-<p align="center">
-  <img src="https://trdl.dev/images/logo.svg" alt="trdl" style="max-height:100%;" height="30">
-</p>
-___
-
-This repository provides actions for seamless integration of trdl into your GitHub Workflows.
+# ⚠️ This repository is archived; please use [werf/trdl/actions](https://github.com/werf/trdl/tree/main/actions) instead.
 
 ## Table of contents
 
